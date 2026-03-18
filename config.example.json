@@ -44,7 +44,8 @@
   },
   "games": {
     "dice_cost": 5,
-    "dice_reward": 10
+    "dice_reward": 10,
+    "dice_reward_threshold": 5
   },
   "backup": {
     "enabled": true,
