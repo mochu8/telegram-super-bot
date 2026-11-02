@@ -1,0 +1,112 @@
+:root {
+  color-scheme: light dark;
+  --bg: var(--tg-theme-bg-color, #f4f6f8);
+  --text: var(--tg-theme-text-color, #1c1c1e);
+  --hint: var(--tg-theme-hint-color, #6b7280);
+  --link: var(--tg-theme-link-color, #2481cc);
+  --btn: var(--tg-theme-button-color, #2481cc);
+  --btn-text: var(--tg-theme-button-text-color, #ffffff);
+  --card: var(--tg-theme-secondary-bg-color, #ffffff);
+  --line: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: var(--tg-theme-bg-color, #1c1c1e);
+    --text: var(--tg-theme-text-color, #f2f2f7);
+    --hint: var(--tg-theme-hint-color, #a1a1aa);
+    --card: var(--tg-theme-secondary-bg-color, #2c2c2e);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header, nav, main { padding: 12px 14px; }
+
+header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 2;
+}
+
+select, input, textarea, button {
+  font: inherit;
+  color: inherit;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+select { max-width: 46vw; }
+
+nav {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-top: 0;
+}
+
+nav button {
+  white-space: nowrap;
+  background: var(--card);
+}
+
+nav button.active {
+  background: var(--btn);
+  color: var(--btn-text);
+  border-color: transparent;
+}
+
+main { display: grid; gap: 12px; padding-top: 0; }
+
+.card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.row, .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+button.primary {
+  background: var(--btn);
+  color: var(--btn-text);
+  border-color: transparent;
+}
+
+.hint { color: var(--hint); font-size: 13px; }
+
+.item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.item:last-child { border-bottom: 0; }
+
+textarea { min-height: 88px; width: 100%; resize: vertical; }
+
+input[type="search"], input[type="text"], input[type="number"], input[type="url"] { width: 100%; }
+
+label.switch { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+
+.error { color: #d92d20; }
+
+.ok { color: #067647; }
