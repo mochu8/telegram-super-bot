@@ -7,6 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from groupbot.groupsettings import (
+    Announcement,
+    AutoReply,
+    WelcomeButton,
+    announcements_from,
+    buttons_from,
+    replies_from,
+)
 from groupbot.moderation import DEFAULT_KEYWORDS, DEFAULT_PATTERNS, DEFAULT_WHITELIST
 from groupbot.textutil import normalize_domain
 
@@ -61,6 +69,12 @@ class AppConfig:
     message_retention_days: int
     message_max_rows: int
     message_max_length: int
+    panel_base_url: str
+    panel_host: str
+    panel_port: int
+    panel_auth_max_age: int
+    panel_rate_limit: int
+    panel_rate_window: int
 
     def timezone(self) -> ZoneInfo:
         return ZoneInfo(self.timezone_name)
@@ -102,6 +116,15 @@ class EffectiveSettings:
     message_max_rows: int
     message_max_length: int
     timezone_name: str
+    welcome_enabled: bool
+    welcome_buttons: tuple[WelcomeButton, ...]
+    auto_reply_enabled: bool
+    auto_replies: tuple[AutoReply, ...]
+    announce_enabled: bool
+    announcements: tuple[Announcement, ...]
+    rules_enabled: bool
+    rules_text: str
+    points_enabled: bool
 
 
 def backup_interval_hours(cfg: AppConfig) -> int | None:
@@ -282,7 +305,64 @@ def build_config(file_data: Mapping[str, object] | None, environ: Mapping[str, s
         message_retention_days=_as_int(messages.get("retention_days"), 7, minimum=1),
         message_max_rows=_as_int(messages.get("max_rows"), 50000, minimum=100),
         message_max_length=_as_int(messages.get("max_length"), 200, minimum=20),
+        panel_base_url=_panel_base_url(environ.get("PANEL_BASE_URL", "")),
+        panel_host=_panel_host(environ.get("PANEL_HOST", "")),
+        panel_port=_panel_port(environ.get("PANEL_PORT", "")),
+        panel_auth_max_age=_bounded_env_int(
+            environ.get("PANEL_AUTH_MAX_AGE", ""),
+            86400,
+            60,
+            7 * 86400,
+            "PANEL_AUTH_MAX_AGE",
+        ),
+        panel_rate_limit=_bounded_env_int(
+            environ.get("PANEL_RATE_LIMIT", ""),
+            60,
+            1,
+            600,
+            "PANEL_RATE_LIMIT",
+        ),
+        panel_rate_window=_bounded_env_int(
+            environ.get("PANEL_RATE_WINDOW", ""),
+            60,
+            1,
+            3600,
+            "PANEL_RATE_WINDOW",
+        ),
     )
+
+
+def _panel_base_url(raw: str) -> str:
+    value = raw.strip().rstrip("/")
+    if not value:
+        return ""
+    if not value.startswith("https://") or any(char.isspace() for char in value):
+        raise ConfigError("PANEL_BASE_URL 必须是 https 地址。")
+    return value
+
+
+def _panel_host(raw: str) -> str:
+    value = raw.strip() or "0.0.0.0"
+    if any(char.isspace() for char in value):
+        raise ConfigError("PANEL_HOST 不正确。")
+    return value
+
+
+def _panel_port(raw: str) -> int:
+    return _bounded_env_int(raw, 8080, 1, 65535, "PANEL_PORT")
+
+
+def _bounded_env_int(raw: str, default: int, low: int, high: int, name: str) -> int:
+    text = raw.strip()
+    if not text:
+        return default
+    try:
+        value = int(text)
+    except ValueError as exc:
+        raise ConfigError(f"{name} 必须是整数。") from exc
+    if not low <= value <= high:
+        raise ConfigError(f"{name} 超出范围。")
+    return value
 
 
 def load_file(path: Path) -> dict[str, object]:
@@ -324,6 +404,38 @@ def _number(
     if isinstance(value, bool) or not isinstance(value, int):
         return default
     return min(max(value, low), high)
+
+
+def effective_exact(
+    base: tuple[str, ...],
+    extra: tuple[str, ...],
+    disabled: tuple[str, ...],
+) -> tuple[str, ...]:
+    blocked = set(disabled)
+    seen: set[str] = set()
+    chosen: list[str] = []
+    for item in (*base, *extra):
+        if item in blocked or item in seen:
+            continue
+        seen.add(item)
+        chosen.append(item)
+    return tuple(chosen)
+
+
+def _bonus_days(overrides: Mapping[str, object], default: tuple[int, ...]) -> tuple[int, ...]:
+    if "sign_bonus" not in overrides:
+        return default
+    value = overrides["sign_bonus"]
+    if not isinstance(value, list) or not all(_plain_int(item) for item in value):
+        return default
+    return tuple(item for item in value if 1 <= item <= 3650)
+
+
+def _rules_text(overrides: Mapping[str, object]) -> str:
+    value = overrides.get("rules_text", "")
+    if not isinstance(value, str):
+        return ""
+    return value[:3500]
 
 
 def _str_list(overrides: Mapping[str, object], key: str) -> tuple[str, ...]:
@@ -398,7 +510,11 @@ def resolve_settings(
             _str_list(group, "extra_keywords"),
             _str_list(group, "disabled_keywords"),
         ),
-        regex_patterns=cfg.regex_patterns,
+        regex_patterns=effective_exact(
+            cfg.regex_patterns,
+            _str_list(group, "extra_patterns"),
+            _str_list(group, "disabled_patterns"),
+        ),
         ban_links=_flag(group, "ban_links", cfg.ban_links),
         whitelist_domains=effective_domains(
             cfg.whitelist_domains,
@@ -424,15 +540,26 @@ def resolve_settings(
         flood_mute=_number(group, "flood_mute", cfg.flood_mute, 30, 86400),
         warn_threshold=_number(group, "warn_threshold", cfg.warn_threshold, 1, 20),
         log_channel_id=resolve_log_channel(cfg, group),
-        sign_daily=cfg.sign_daily,
-        sign_bonus=cfg.sign_bonus,
-        msg_per_point=cfg.msg_per_point,
-        max_points_per_day=cfg.max_points_per_day,
-        dice_cost=cfg.dice_cost,
-        dice_reward=cfg.dice_reward,
-        dice_reward_threshold=cfg.dice_reward_threshold,
+        sign_daily=_number(group, "sign_daily", cfg.sign_daily, 0, 10000),
+        sign_bonus=_bonus_days(group, cfg.sign_bonus),
+        msg_per_point=_number(group, "msg_per_point", cfg.msg_per_point, 0, 10000),
+        max_points_per_day=_number(group, "max_points_per_day", cfg.max_points_per_day, 0, 100000),
+        dice_cost=_number(group, "dice_cost", cfg.dice_cost, 0, 100000),
+        dice_reward=_number(group, "dice_reward", cfg.dice_reward, 0, 100000),
+        dice_reward_threshold=_number(
+            group, "dice_reward_threshold", cfg.dice_reward_threshold, 1, 6
+        ),
         message_retention_days=cfg.message_retention_days,
         message_max_rows=cfg.message_max_rows,
         message_max_length=cfg.message_max_length,
         timezone_name=cfg.timezone_name,
+        welcome_enabled=_flag(group, "welcome_enabled", True),
+        welcome_buttons=buttons_from(dict(group)),
+        auto_reply_enabled=_flag(group, "auto_reply_enabled", False),
+        auto_replies=replies_from(dict(group)),
+        announce_enabled=_flag(group, "announce_enabled", False),
+        announcements=announcements_from(dict(group)),
+        rules_enabled=_flag(group, "rules_enabled", True),
+        rules_text=_rules_text(group),
+        points_enabled=_flag(group, "points_enabled", True),
     )

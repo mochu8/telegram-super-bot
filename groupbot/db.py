@@ -434,13 +434,52 @@ class Database:
             )
             await self.conn.commit()
 
-    async def list_actions(self, chat_id: int, limit: int) -> list[dict]:
+    async def list_actions(
+        self,
+        chat_id: int,
+        limit: int,
+        kinds: tuple[str, ...] | None = None,
+    ) -> list[dict]:
+        async with self._lock:
+            if kinds:
+                marks = ",".join("?" * len(kinds))
+                cursor = await self.conn.execute(
+                    f"""
+                    SELECT * FROM moderation_log
+                    WHERE chat_id=? AND kind IN ({marks})
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (chat_id, *kinds, limit),
+                )
+            else:
+                cursor = await self.conn.execute(
+                    """
+                    SELECT * FROM moderation_log
+                    WHERE chat_id=?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (chat_id, limit),
+                )
+            return [dict(row) for row in await cursor.fetchall()]
+
+    async def list_groups(self) -> list[dict]:
+        async with self._lock:
+            cursor = await self.conn.execute(
+                "SELECT chat_id, title FROM groups ORDER BY title COLLATE NOCASE, chat_id"
+            )
+            return [dict(row) for row in await cursor.fetchall()]
+
+    async def list_warnings(self, chat_id: int, limit: int = 50) -> list[dict]:
         async with self._lock:
             cursor = await self.conn.execute(
                 """
-                SELECT * FROM moderation_log
-                WHERE chat_id=?
-                ORDER BY id DESC
+                SELECT m.user_id, m.warnings, u.username, u.first_name
+                FROM members m
+                LEFT JOIN users u ON u.user_id = m.user_id
+                WHERE m.chat_id=? AND m.warnings > 0
+                ORDER BY m.warnings DESC, m.user_id ASC
                 LIMIT ?
                 """,
                 (chat_id, limit),

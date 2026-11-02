@@ -149,6 +149,41 @@ sudo systemctl enable --now groupbot
 
 如果本地还留着旧的 `config.json`，里面的「免费」「优惠」和 `加[我]?…[信新]` 会继续误伤聊天。请对照 `config.example.json` 更新规则。
 
+## 管理面板
+
+面板是一个 Telegram Mini App，由同一个 Python 进程提供页面和接口。它改的是命令使用的那一套群设置：屏蔽词、正则、白名单、防刷、警告、入群验证、欢迎语和按钮、自动回复、定时公告、群规、积分、日志频道。不设置 `PANEL_BASE_URL` 时，网页服务不会启动，机器人其他功能不受影响。
+
+私聊里的 `/panel` 会给出「进入管理面板」按钮。群里的按钮会尝试直接打开 Mini App；如果只是跳进了私聊，机器人会再发一个按钮。面板用 Telegram 的 `initData` 登录，没有另外的密码。每次请求都会校验签名和 `auth_date`，并且只允许该群的管理员或配置里的超级管理员修改。
+
+### 本地测试
+
+Mini App 必须使用 https。本机没有域名时，可以用临时隧道把本机 `8080` 端口暴露出去：
+
+```bash
+# .env 里先写 PANEL_HOST=0.0.0.0 和 PANEL_PORT=8080
+# 隧道起来之后，把给出的 https 地址写进 PANEL_BASE_URL，再启动机器人
+cloudflared tunnel --url http://127.0.0.1:8080
+# 或者
+ngrok http 8080
+python -m groupbot
+```
+
+然后在 [@BotFather](https://t.me/BotFather) 里：
+
+1. 用 `/newapp` 创建一个 Mini App，地址填 `PANEL_BASE_URL`。群里的「打开管理面板」依赖这个主 Mini App 或同名入口。
+2. 也可以用 `/setdomain` 绑定同一个域名。隧道地址变化后要重新设置。
+3. 把机器人设为群管理员。私聊发送 `/panel`，或在群里发送 `/panel`。
+
+### 有域名时
+
+把域名解析到服务器，`.env` 里设置 `PANEL_DOMAIN` 和 `PANEL_BASE_URL=https://你的域名`。然后：
+
+```bash
+docker compose --profile https up -d --build
+```
+
+Caddy 会为 `PANEL_DOMAIN` 申请证书，并把 https 转到机器人的 `8080`。不需要面板时，照旧 `docker compose up -d --build`，不要设置 `PANEL_BASE_URL` 即可。
+
 ## 开发
 
 ```bash

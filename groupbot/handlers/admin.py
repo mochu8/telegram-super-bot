@@ -47,6 +47,11 @@ _TOGGLES = {
     "service_delete": "delete_service",
     "leave_delete": "delete_leave",
     "flood": "flood_enabled",
+    "welcome": "welcome_enabled",
+    "reply": "auto_reply_enabled",
+    "announce": "announce_enabled",
+    "rules": "rules_enabled",
+    "points": "points_enabled",
 }
 
 _NUMBERS = {
@@ -475,6 +480,10 @@ async def settings_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await message.reply_text(changed)
     if changed.startswith(("请", "用法", "超出", "域名")):
         return
+    if key == "announce":
+        from groupbot.announce import sync_announcement_jobs
+
+        await sync_announcement_jobs(context.application, chat.id)
     actor_id, _label = _actor(update)
     await audit(
         context,
@@ -627,6 +636,12 @@ def _format_settings(settings, overrides: dict) -> str:
         f"日志频道：{html(log_text)}\n"
         f"链接白名单：{html(domains)}\n"
         f"屏蔽词：{len(settings.keywords)} 个\n"
+        f"欢迎/回复/公告/群规/积分："
+        f"{_on(settings.welcome_enabled)}/"
+        f"{_on(settings.auto_reply_enabled)}/"
+        f"{_on(settings.announce_enabled)}/"
+        f"{_on(settings.rules_enabled)}/"
+        f"{_on(settings.points_enabled)}\n"
     )
 
 

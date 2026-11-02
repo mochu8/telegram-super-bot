@@ -11,6 +11,7 @@ from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from telegram.ext import Application, ContextTypes, filters
 
+from groupbot.groupsettings import match_reply
 from groupbot.moderation import (
     KIND_FLOOD,
     FloodTracker,
@@ -104,6 +105,24 @@ def _policy(settings) -> Policy:
     )
 
 
+def _extra_rows(settings) -> list[list[InlineKeyboardButton]]:
+    rows: list[list[InlineKeyboardButton]] = []
+    for item in settings.welcome_buttons:
+        if item.action == "rules":
+            rows.append([InlineKeyboardButton(item.text, callback_data="rules")])
+        elif item.url:
+            rows.append([InlineKeyboardButton(item.text, url=item.url)])
+    return rows
+
+
+def _with_extra(markup: InlineKeyboardMarkup | None, settings) -> InlineKeyboardMarkup | None:
+    rows = list(markup.inline_keyboard) if markup is not None else []
+    rows.extend(_extra_rows(settings))
+    if not rows:
+        return None
+    return InlineKeyboardMarkup(rows)
+
+
 def _markup(user_id: int, challenge: Challenge) -> InlineKeyboardMarkup:
     if challenge.answer == "ok":
         button = InlineKeyboardButton("✅ 我不是机器人", callback_data=callback_data(user_id, "ok"))
@@ -154,8 +173,12 @@ async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE
         welcome = await _welcome_text(settings, member, chat.title or "")
         if settings.verify_enabled and role == "member":
             await _start_verification(context, message, chat.id, member.id, welcome, settings)
-        else:
-            await message.reply_text(welcome, parse_mode=ParseMode.HTML)
+        elif settings.welcome_enabled or settings.welcome_buttons:
+            await message.reply_text(
+                welcome if settings.welcome_enabled else "欢迎加入。",
+                parse_mode=ParseMode.HTML,
+                reply_markup=_with_extra(None, settings),
+            )
     if settings.delete_service:
         await delete_later(context, chat.id, message.message_id, settings.delete_delay)
 
@@ -165,18 +188,21 @@ async def _start_verification(context, message, chat_id, user_id, welcome: str, 
         await mute_member(context, chat_id, user_id, None)
     except TelegramError:
         logger.warning("入群禁言失败，改为只发送欢迎语 chat=%s user=%s", chat_id, user_id)
-        await message.reply_text(welcome, parse_mode=ParseMode.HTML)
+        await message.reply_text(
+            welcome if settings.welcome_enabled else "请先完成入群验证。",
+            parse_mode=ParseMode.HTML,
+            reply_markup=_with_extra(None, settings),
+        )
         return
     challenge = make_challenge(settings.verify_mode)
-    prompt = (
-        f"{welcome}\n\n请在 {settings.verify_timeout} 秒内完成验证，超时会被移出群组。"
-    )
+    base = welcome if settings.welcome_enabled else "请先完成入群验证。"
+    prompt = f"{base}\n\n请在 {settings.verify_timeout} 秒内完成验证，超时会被移出群组。"
     if challenge.prompt:
         prompt += f"\n{html(challenge.prompt)} = ?"
     sent = await message.reply_text(
         prompt,
         parse_mode=ParseMode.HTML,
-        reply_markup=_markup(user_id, challenge),
+        reply_markup=_with_extra(_markup(user_id, challenge), settings),
     )
     deadline = utc_now() + timedelta(seconds=settings.verify_timeout)
     await database(context).save_pending(
@@ -289,6 +315,18 @@ async def resume_pending_verifications(app: Application) -> None:
         )
 
 
+async def rules_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.message is None:
+        return
+    settings = await current_settings(context, query.message.chat)
+    if not settings.rules_enabled or not settings.rules_text:
+        await query.answer("本群还没有群规。", show_alert=True)
+        return
+    await query.answer()
+    await query.message.reply_text(settings.rules_text)
+
+
 async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     chat = update.effective_chat
@@ -385,8 +423,16 @@ async def moderate_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             mute_seconds=None,
         )
         return
+    body = message.text or message.caption or ""
+    if settings.auto_reply_enabled and body:
+        reply = match_reply(body, settings.auto_replies)
+        if reply:
+            try:
+                await message.reply_text(reply)
+            except TelegramError:
+                logger.info("自动回复发送失败 chat=%s", chat.id)
     if user is not None:
-        await _award(context, chat.id, user, message.text or message.caption or "", settings)
+        await _award(context, chat.id, user, body, settings)
 
 
 def _flooding(context, chat_id: int, user_id: int, settings) -> bool:
@@ -409,7 +455,7 @@ async def _award(context, chat_id: int, user, text: str, settings) -> None:
         user.id,
         text,
         today,
-        settings.msg_per_point,
+        settings.msg_per_point if settings.points_enabled else 0,
         settings.max_points_per_day,
         isoformat(utc_now()),
         settings.message_max_length,

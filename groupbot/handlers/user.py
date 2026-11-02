@@ -7,9 +7,10 @@ from telegram.constants import DiceEmoji, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from groupbot.handlers.features import panel_keyboard, parse_group_arg
 from groupbot.helptext import HELP_TEXT
 from groupbot.points import daily_fortune
-from groupbot.services import current_settings, database, is_group, remember_group
+from groupbot.services import config, current_settings, database, is_group, remember_group
 from groupbot.textutil import html
 from groupbot.timeutil import isoformat, local_today, utc_now
 
@@ -39,6 +40,16 @@ async def start_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if message is None or user is None:
         return
+    args = context.args or []
+    if args:
+        linked = parse_group_arg(str(args[0]))
+        base = config(context).panel_base_url
+        if linked is not None and base:
+            await message.reply_text(
+                "点下面的按钮管理这个群。只有管理员能修改设置。",
+                reply_markup=panel_keyboard(base, linked),
+            )
+            return
     name = html(user.first_name or "朋友")
     await message.reply_text(
         f"👋 你好，{name}！\n\n"
@@ -62,6 +73,9 @@ async def sign_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if message is None or user is None or chat is None:
         return
     settings = await current_settings(context, chat)
+    if not settings.points_enabled:
+        await message.reply_text("本群已关闭积分功能。")
+        return
     today = local_today(utc_now(), ZoneInfo(settings.timezone_name))
     outcome, total = await database(context).sign_in(
         chat.id,
@@ -88,6 +102,10 @@ async def points_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat
     if message is None or user is None or chat is None:
         return
+    settings = await current_settings(context, chat)
+    if not settings.points_enabled:
+        await message.reply_text("本群已关闭积分功能。")
+        return
     member = await database(context).get_member(chat.id, user.id)
     if member is None:
         await message.reply_text("你在这里还没有积分，先用 /sign 签到吧。")
@@ -109,6 +127,10 @@ async def rank_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     if is_group(chat):
         await remember_group(update, context)
+    settings = await current_settings(context, chat)
+    if not settings.points_enabled:
+        await message.reply_text("本群已关闭积分功能。")
+        return
     rows = await database(context).ranking(chat.id, 10)
     if not rows:
         await message.reply_text("暂无排行数据。")
@@ -147,6 +169,9 @@ async def dice_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if message is None or user is None or chat is None:
         return
     settings = await current_settings(context, chat)
+    if not settings.points_enabled:
+        await message.reply_text("本群已关闭积分功能。")
+        return
     store = database(context)
     if not await store.try_spend(chat.id, user.id, settings.dice_cost):
         member = await store.get_member(chat.id, user.id)

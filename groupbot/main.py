@@ -14,6 +14,7 @@ from telegram.ext import (
     filters,
 )
 
+from groupbot.announce import sync_announcement_jobs
 from groupbot.config import AppConfig, ConfigError, load_config
 from groupbot.db import Database
 from groupbot.handlers.admin import (
@@ -33,11 +34,20 @@ from groupbot.handlers.admin import (
     wordlist_command,
 )
 from groupbot.handlers.errors import on_error
+from groupbot.handlers.features import (
+    delreply_command,
+    panel_command,
+    replies_command,
+    reply_command,
+    rules_command,
+    setrules_command,
+)
 from groupbot.handlers.messages import (
     CONTENT_FILTER,
     member_left,
     moderate_message,
     resume_pending_verifications,
+    rules_callback,
     verify_callback,
     welcome_new_members,
 )
@@ -53,7 +63,9 @@ from groupbot.handlers.user import (
 from groupbot.helptext import ADMIN_COMMANDS, USER_COMMANDS
 from groupbot.jobs import schedule_maintenance
 from groupbot.moderation import FloodTracker
+from groupbot.panel_server import PanelState, start_panel
 from groupbot.permissions import AdminCache
+from groupbot.webapp_auth import SlidingLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +77,8 @@ _USER_HANDLERS = {
     "rank": rank_command,
     "luck": luck_command,
     "dice": dice_command,
+    "rules": rules_command,
+    "panel": panel_command,
 }
 
 _ADMIN_HANDLERS = {
@@ -82,6 +96,10 @@ _ADMIN_HANDLERS = {
     "stats": stats_command,
     "clean": clean_command,
     "violations": violations_command,
+    "setrules": setrules_command,
+    "reply": reply_command,
+    "delreply": delreply_command,
+    "replies": replies_command,
 }
 
 
@@ -91,6 +109,7 @@ def register_handlers(app: Application) -> None:
     for name, callback in _ADMIN_HANDLERS.items():
         app.add_handler(CommandHandler(name, callback))
     app.add_handler(CallbackQueryHandler(verify_callback, pattern=r"^v:"))
+    app.add_handler(CallbackQueryHandler(rules_callback, pattern=r"^rules$"))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_members))
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
     app.add_handler(MessageHandler(CONTENT_FILTER, moderate_message))
@@ -121,11 +140,27 @@ async def post_init(app: Application) -> None:
     app.bot_data["flood"] = FloodTracker()
     schedule_maintenance(app)
     await resume_pending_verifications(app)
+    await sync_announcement_jobs(app)
     await publish_commands(app)
+    runner = await start_panel(
+        PanelState(
+            cfg=cfg,
+            db=store,
+            bot=app.bot,
+            admin_cache=app.bot_data["admin_cache"],
+            limiter=SlidingLimiter(),
+            sync_announcements=lambda chat_id: sync_announcement_jobs(app, chat_id),
+        )
+    )
+    if runner is not None:
+        app.bot_data["panel_runner"] = runner
     logger.info("数据库已就绪：%s", cfg.db_path)
 
 
 async def post_shutdown(app: Application) -> None:
+    runner = app.bot_data.get("panel_runner")
+    if runner is not None:
+        await runner.cleanup()
     store = app.bot_data.get("db")
     if isinstance(store, Database):
         await store.close()

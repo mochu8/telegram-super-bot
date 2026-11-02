@@ -20,4 +20,6 @@ COPY bot.py config.example.json ./
 
 USER bot
 
+EXPOSE 8080
+
 CMD ["python", "-m", "groupbot"]
