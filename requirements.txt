@@ -1,5 +1,3 @@
-python-telegram-bot>=20.0
-sqlite3
-asyncio
-aiohttp
-schedule
+python-telegram-bot[job-queue]==22.8
+aiosqlite==0.22.1
+tzdata==2026.6

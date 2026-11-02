@@ -1,0 +1,19 @@
+[Unit]
+Description=Telegram 超级群管机器人
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bot
+Group=bot
+WorkingDirectory=/opt/telegram-super-bot
+EnvironmentFile=/opt/telegram-super-bot/.env
+ExecStart=/opt/telegram-super-bot/.venv/bin/python -m groupbot
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

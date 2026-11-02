@@ -1,40 +1,59 @@
 {
   "bot_token": "YOUR_BOT_TOKEN_HERE",
   "admin_ids": [123456789],
-  "welcome_message": "🎉 欢迎 {name} 加入本群！\n\n📋 请遵守群规，文明交流\n💬 有问题可以 @管理员",
+  "timezone": "Asia/Shanghai",
+  "database": "data/bot.db",
+  "log_channel_id": null,
+  "welcome_message": "🎉 欢迎 {name} 加入 {chat}！\n\n请遵守群规，文明交流。",
   "anti_ad": {
     "enabled": true,
     "keywords": [
-      "广告",
-      "推广",
       "加群",
       "兼职",
-      "赚钱",
       "刷单",
-      "招商",
-      "代理",
-      "优惠",
-      "折扣",
-      "免费",
-      "领取"
+      "日赚",
+      "稳赚",
+      "博彩",
+      "网赚",
+      "代刷",
+      "免费领取",
+      "点击领取",
+      "招商加盟",
+      "刷信誉"
     ],
     "regex_patterns": [
-      "(微信|wx|wechat)[\\s:]?[a-zA-Z0-9_-]+",
-      "(QQ|qq)[\\s:]?[0-9]+",
-      "加[我]?[\\s]?[微维]?[信新]"
+      "(?:微信|薇信|威信|微\\s*信|wechat|weixin)\\s*[:：]?\\s*[A-Za-z][A-Za-z0-9_-]{4,}",
+      "(?<![A-Za-z0-9])(?:wx|vx)\\s*[:：]\\s*[A-Za-z0-9_-]{5,}",
+      "(?<!不)(?:加|添加)\\s*(?:我)?\\s*(?:的)?\\s*(?:微信|薇信|威信|v信|vx|wx|wechat|weixin)",
+      "(?<![A-Za-z0-9])(?:wx|vx|v信)\\s*[:：]?\\s*[A-Za-z][A-Za-z0-9_-]{4,}",
+      "(?<![A-Za-z0-9])(?:qq|扣扣)\\s*[:：]?\\s*[1-9][0-9]{4,11}(?!\\d)"
     ],
     "ban_links": true,
-    "whitelist_links": [
-      "t.me/",
-      "telegram.org"
-    ],
+    "whitelist_links": ["t.me", "telegram.me", "telegram.org"],
     "new_user_restrict": 30,
-    "mute_duration": 3600
+    "mute_duration": 3600,
+    "ban_channel_messages": false,
+    "ban_forwards": false
   },
   "auto_delete": {
     "service_msg": true,
     "leave_msg": true,
-    "delay_seconds": 60
+    "delay_seconds": 60,
+    "warning_seconds": 10
+  },
+  "verification": {
+    "enabled": true,
+    "timeout_seconds": 120,
+    "mode": "button"
+  },
+  "anti_flood": {
+    "enabled": true,
+    "max_messages": 5,
+    "window_seconds": 8,
+    "mute_seconds": 60
+  },
+  "warnings": {
+    "threshold": 3
   },
   "points": {
     "sign_daily": 10,
@@ -47,8 +66,15 @@
     "dice_reward": 10,
     "dice_reward_threshold": 5
   },
+  "messages": {
+    "retention_days": 7,
+    "max_rows": 50000,
+    "max_length": 200
+  },
   "backup": {
     "enabled": true,
-    "interval_hours": 24
+    "interval_hours": 24,
+    "keep": 7,
+    "dir": "backups"
   }
 }
