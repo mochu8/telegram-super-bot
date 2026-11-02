@@ -53,7 +53,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-数据库在卷 `bot-data`，备份在 `bot-backups`。容器里的路径是 `/app/data/bot.db` 和 `/app/backups`。进程用户是 uid `10001`。如果改成绑定宿主目录，请把目录所有者改成这个 uid。
+数据库在卷 `bot-data`，备份在 `bot-backups`。容器里的路径是 `/app/data/bot.db` 和 `/app/backups`。进程用户是 uid `10001`。如果改成绑定宿主目录，请把目录所有者改成这个 uid。compose 会把容器的 `8080` 映射出来，方便隧道接到本机；只有设置了 `PANEL_BASE_URL` 时，这个端口才有面板服务。
 
 ## Debian 上的 systemd
 
@@ -86,8 +86,10 @@ sudo systemctl enable --now groupbot
 | `/rank` | 本群积分排行 |
 | `/luck` | 今日运势。同一个人同一天的结果固定，重启也不会变 |
 | `/dice` | 消耗积分掷 Telegram 骰子。默认 5 分，点数达到 5 奖励 10 分 |
+| `/rules` | 查看本群群规。群规没写或功能关闭时会说明 |
+| `/panel` | 打开管理面板。群里只有管理员能看到按钮 |
 
-私聊里这些命令也能用，但和任何一个群的数据都是分开的。
+私聊里签到、积分、运势和骰子也能用，但和任何一个群的数据都是分开的。积分功能被关掉时，`/sign`、`/points`、`/rank`、`/dice` 会直接说明。
 
 ### 管理员
 
@@ -109,6 +111,10 @@ sudo systemctl enable --now groupbot
 | `/stats` | 成员数和记录数量 |
 | `/clean` | 清理最近的消息，例如 `/clean 20`，最多 100 条 |
 | `/violations` | 最近的违规和管理记录，例如 `/violations 20` |
+| `/setrules` | 设置群规。`/setrules 清空` 会清掉正文 |
+| `/reply` | 添加自动回复：`/reply 关键词 \| 回复内容` |
+| `/delreply` | 删除自动回复 |
+| `/replies` | 查看自动回复 |
 
 `/ban` 表示禁言（限制发言），不是永久封禁。踢人用 `/kick`。
 
@@ -127,12 +133,35 @@ sudo systemctl enable --now groupbot
 - `/settings warns 3`
 - `/settings whitelist add example.com`、`/settings whitelist del example.com`
 - `/settings log_channel -1001234567890` 或 `/settings log_channel 关`
+- `/settings welcome 开`、`/settings reply 开`、`/settings announce 开`、`/settings rules 开`、`/settings points 关`
+- `/settings timeout 120`、`/settings flood_limit 5`、`/settings flood_window 8`、`/settings flood_mute 60`
 
-欢迎语支持 `{name}`、`{username}`、`{id}`、`{chat}`。用户名里的特殊字符会转义，不会被当成 HTML。
+欢迎语支持 `{name}`、`{username}`、`{id}`、`{chat}`。用户名里的特殊字符会转义，不会被当成 HTML。自动回复、定时公告和群规正文按纯文本发送。
+
+## 环境变量
+
+写在 `.env` 里，或由 systemd 的 `EnvironmentFile`、Docker 的 `env_file` 注入。同名项优先于 `config.json`。
+
+| 变量 | 作用 |
+|------|------|
+| `BOT_TOKEN` | 必填。BotFather 的 token |
+| `ADMIN_IDS` | 超级管理员数字 ID，逗号分隔 |
+| `LOG_CHANNEL_ID` | 可选。全局管理日志频道或群 |
+| `TZ` | 签到和运势用的时区，默认 `Asia/Shanghai` |
+| `DB_PATH` | SQLite 路径，默认 `data/bot.db` |
+| `BACKUP_DIR` | 备份目录，默认 `backups` |
+| `CONFIG_PATH` | 配置文件路径，默认 `config.json`。文件可以不存在 |
+| `PANEL_BASE_URL` | 面板的对外 https 地址。留空则不启动网页 |
+| `PANEL_HOST` | 面板监听地址，默认 `0.0.0.0` |
+| `PANEL_PORT` | 面板监听端口，默认 `8080` |
+| `PANEL_AUTH_MAX_AGE` | `initData` 有效秒数，默认 `86400` |
+| `PANEL_RATE_LIMIT` | 每个用户在窗口内的请求上限，默认 `60` |
+| `PANEL_RATE_WINDOW` | 限流窗口秒数，默认 `60` |
+| `PANEL_DOMAIN` | 只给 Caddy 用，见下面的域名部署 |
 
 ## 配置说明
 
-环境变量见 `.env.example`。下面这些原来就有、但以前没有生效的项，现在会用到：
+`config.json` 可以不存在。下面这些原来就有、但以前没有生效的项，现在会用到：
 
 | 配置 | 作用 |
 |------|------|
@@ -170,9 +199,9 @@ python -m groupbot
 
 然后在 [@BotFather](https://t.me/BotFather) 里：
 
-1. 用 `/newapp` 创建一个 Mini App，地址填 `PANEL_BASE_URL`。群里的「打开管理面板」依赖这个主 Mini App 或同名入口。
-2. 也可以用 `/setdomain` 绑定同一个域名。隧道地址变化后要重新设置。
-3. 把机器人设为群管理员。私聊发送 `/panel`，或在群里发送 `/panel`。
+1. 打开 Bot Settings → Configure Mini App，把主 Mini App 的地址设成 `PANEL_BASE_URL`。群里的「打开管理面板」是 `https://t.me/机器人用户名?startapp=...`，必须配这个主入口。`/newapp` 用来做带短名的入口，不是这条链接所必需的。
+2. 用 `/setdomain` 绑定同一个域名。隧道地址变了就要改这两处。
+3. 把机器人设为群管理员。私聊发送 `/panel`，或在群里发送 `/panel`。主 Mini App 还没配对时，用群里的「改到私聊打开」，私聊里的按钮不依赖主 Mini App。
 
 ### 有域名时
 
